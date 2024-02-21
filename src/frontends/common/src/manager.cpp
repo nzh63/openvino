@@ -211,6 +211,9 @@ private:
 
     void search_all_plugins() {
         auto fe_lib_dir = get_frontend_library_path();
+        if (fe_lib_dir.length() > 4 && fe_lib_dir.substr(0, 4) == "\\\\?\\") {
+            fe_lib_dir = fe_lib_dir.substr(4);
+        }
         if (!fe_lib_dir.empty())
             find_plugins(fe_lib_dir, m_plugins);
     }

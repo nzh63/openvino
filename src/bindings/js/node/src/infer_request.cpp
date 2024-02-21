@@ -11,10 +11,6 @@
 #include "node_output.hpp"
 #include "tensor.hpp"
 
-namespace {
-std::mutex infer_mutex;
-}
-
 InferRequestWrap::InferRequestWrap(const Napi::CallbackInfo& info)
     : Napi::ObjectWrap<InferRequestWrap>(info),
       _infer_request{} {}
@@ -149,9 +145,9 @@ Napi::Value InferRequestWrap::get_output_tensors(const Napi::CallbackInfo& info)
 
     for (auto& node : compiled_model) {
         auto tensor = _infer_request.get_tensor(node);
-        auto new_tensor = ov::Tensor(tensor.get_element_type(), tensor.get_shape());
-        tensor.copy_to(new_tensor);
-        outputs_obj.Set(node.get_any_name(), TensorWrap::wrap(info.Env(), new_tensor));
+        //auto new_tensor = ov::Tensor(tensor.get_element_type(), tensor.get_shape());
+        //tensor.copy_to(new_tensor);
+        outputs_obj.Set(node.get_any_name(), TensorWrap::wrap(info.Env(), tensor));
     }
     return outputs_obj;
 }
@@ -208,44 +204,8 @@ Napi::Value InferRequestWrap::get_compiled_model(const Napi::CallbackInfo& info)
 }
 
 void FinalizerCallback(Napi::Env env, void* finalizeData, TsfnContext* context) {
-    context->native_thread.join();
     delete context;
 };
-
-void performInferenceThread(TsfnContext* context) {
-    {
-        const std::lock_guard<std::mutex> lock(infer_mutex);
-        for (size_t i = 0; i < context->_inputs.size(); ++i) {
-            context->_ir->set_input_tensor(i, context->_inputs[i]);
-        }
-        context->_ir->infer();
-
-        auto compiled_model = context->_ir->get_compiled_model().outputs();
-        std::map<std::string, ov::Tensor> outputs;
-
-        for (auto& node : compiled_model) {
-            const auto& tensor = context->_ir->get_tensor(node);
-            auto new_tensor = ov::Tensor(tensor.get_element_type(), tensor.get_shape());
-            tensor.copy_to(new_tensor);
-            outputs.insert({node.get_any_name(), new_tensor});
-        }
-
-        context->result = outputs;
-    }
-
-    auto callback = [](Napi::Env env, Napi::Function, TsfnContext* context) {
-        const auto& res = context->result;
-        auto outputs_obj = Napi::Object::New(env);
-
-        for (const auto& [key, tensor] : res) {
-            outputs_obj.Set(key, TensorWrap::wrap(env, tensor));
-        }
-        context->deferred.Resolve({outputs_obj});
-    };
-
-    context->tsfn.BlockingCall(context, callback);
-    context->tsfn.Release();
-}
 
 Napi::Value InferRequestWrap::infer_async(const Napi::CallbackInfo& info) {
     if (info.Length() != 1) {
@@ -253,18 +213,56 @@ Napi::Value InferRequestWrap::infer_async(const Napi::CallbackInfo& info) {
     }
     Napi::Env env = info.Env();
 
-    auto context = new TsfnContext(env);
-    context->_ir = &_infer_request;
     try {
         auto parsed_input = parse_input_data(info[0]);
-        context->_inputs = parsed_input;
+        for (size_t i = 0; i < parsed_input.size(); ++i) {
+            _infer_request.set_input_tensor(i, parsed_input[i]);
+        }
     } catch (std::exception& e) {
         reportError(info.Env(), e.what());
     }
 
-    context->tsfn =
-        Napi::ThreadSafeFunction::New(env, Napi::Function(), "TSFN", 0, 1, context, FinalizerCallback, (void*)nullptr);
+    auto context = new TsfnContext(env);
+    try {
+        context->tsfn = Napi::ThreadSafeFunction::New(env,
+                                                      Napi::Function(),
+                                                      "TSFN",
+                                                      0,
+                                                      1,
+                                                      context,
+                                                      FinalizerCallback,
+                                                      (void*)nullptr);
+        context->_ir = &_infer_request;
 
-    context->native_thread = std::thread(performInferenceThread, context);
+        _infer_request.set_callback([context](std::exception_ptr ex_ptr) {
+            auto callback = [ex_ptr](Napi::Env env, Napi::Function, TsfnContext* context) {
+                if (!ex_ptr) {
+                    auto compiled_model = context->_ir->get_compiled_model().outputs();
+                    auto outputs_obj = Napi::Object::New(env);
+
+                    for (auto& node : compiled_model) {
+                        const auto& tensor = context->_ir->get_tensor(node);
+                        // auto new_tensor = ov::Tensor(tensor.get_element_type(), tensor.get_shape());
+                        // tensor.copy_to(new_tensor);
+                        outputs_obj.Set(node.get_any_name(), TensorWrap::wrap(env, tensor));
+                    }
+
+                    context->deferred.Resolve(outputs_obj);
+                } else {
+                    try {
+                        std::rethrow_exception(ex_ptr);
+                    } catch (const std::exception& e) {
+                        reportError(env, e.what());
+                    }
+                }
+            };
+            context->tsfn.BlockingCall(context, callback);
+            context->tsfn.Release();
+        });
+        _infer_request.start_async();
+    } catch (std::exception& e) {
+        context->tsfn.Abort();
+        reportError(info.Env(), e.what());
+    }
     return context->deferred.Promise();
 }

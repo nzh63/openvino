@@ -174,5 +174,5 @@ export interface NodeAddon {
 
 export default
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    require('../bin/ov_node_addon.node') as
+    require(`../bin/${process.platform}/ov_node_addon.node`) as
     NodeAddon;

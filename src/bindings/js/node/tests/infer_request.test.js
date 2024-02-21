@@ -14,7 +14,7 @@ const model = core.readModelSync(testXml);
 const compiledModel = core.compileModelSync(model, 'CPU');
 
 const inferRequest = compiledModel.createInferRequest();
-const inferRequestAsync = compiledModel.createInferRequest();
+const inferRequestAsync = () => compiledModel.createInferRequest();
 
 const tensorData = Float32Array.from({ length: 3072 }, () => (Math.random() + epsilon));
 const tensor = new ov.Tensor(
@@ -29,7 +29,7 @@ const resTensor = new ov.Tensor(
 );
 
 const tensorLike = [[tensor],
-  [tensorData]];
+[tensorData]];
 
 describe('InferRequest', () => {
 
@@ -55,7 +55,7 @@ describe('InferRequest', () => {
   it('Test infer(TypedArray) throws', () => {
     assert.throws(
       () => inferRequest.infer(tensorData),
-      {message: 'TypedArray cannot be passed directly into infer() method.'});
+      { message: 'TypedArray cannot be passed directly into infer() method.' });
   });
 
   const buffer = new ArrayBuffer(tensorData.length);
@@ -65,29 +65,30 @@ describe('InferRequest', () => {
     [new Float32Array(buffer, 4), 'TypedArray.byteOffset has to be equal to zero.'],
   ];
 
-  inputMessagePairs.forEach( ([tl, msg]) => {
+  inputMessagePairs.forEach(([tl, msg]) => {
     it(`Test infer([data]) throws ${msg}`, () => {
       assert.throws(
         () => inferRequest.infer([tl]),
-        {message: new RegExp(msg)});
+        { message: new RegExp(msg) });
     });
     it(`Test infer({ data: tl}) throws ${msg}`, () => {
       assert.throws(
-        () => inferRequest.infer({data: tl}),
-        {message: new RegExp(msg)});
+        () => inferRequest.infer({ data: tl }),
+        { message: new RegExp(msg) });
     });
   });
 
   it('Test inferAsync(inputData: { [inputName: string]: Tensor })', () => {
-    inferRequestAsync.inferAsync({ data: tensor }).then(result => {
+    inferRequestAsync().inferAsync({ data: tensor }).then(result => {
       assert.ok(result['fc_out'] instanceof ov.Tensor);
       assert.deepStrictEqual(Object.keys(result), ['fc_out']);
-      assert.deepStrictEqual(result['fc_out'].data.length, 10);}
+      assert.deepStrictEqual(result['fc_out'].data.length, 10);
+    }
     );
   });
 
   it('Test inferAsync(inputData: Tensor[])', () => {
-    inferRequestAsync.inferAsync([ tensor ]).then(result => {
+    inferRequestAsync().inferAsync([tensor]).then(result => {
       assert.ok(result['fc_out'] instanceof ov.Tensor);
       assert.deepStrictEqual(Object.keys(result), ['fc_out']);
       assert.deepStrictEqual(result['fc_out'].data.length, 10);
@@ -96,14 +97,14 @@ describe('InferRequest', () => {
 
   it('Test inferAsync([data]) throws: Cannot create a tensor from the passed Napi::Value.', () => {
     assert.throws(
-      () => inferRequestAsync.inferAsync(['string']).then(),
+      () => inferRequestAsync().inferAsync(['string']).then(),
       /Cannot create a tensor from the passed Napi::Value./
     );
   });
 
   it('Test inferAsync({ data: "string"}) throws: Cannot create a tensor from the passed Napi::Value.', () => {
     assert.throws(
-      () => inferRequestAsync.inferAsync({data: 'string'}).then(),
+      () => inferRequestAsync().inferAsync({ data: 'string' }).then(),
       /Cannot create a tensor from the passed Napi::Value./
     );
   });
@@ -123,13 +124,13 @@ describe('InferRequest', () => {
   it('Test setInputTensor() - pass two tensors', () => {
     assert.throws(
       () => inferRequest.setInputTensor(resTensor, tensor),
-      {message: 'InferRequest.setInputTensor() invalid argument.'});
+      { message: 'InferRequest.setInputTensor() invalid argument.' });
   });
 
   it('Test setInputTensor() - pass number as a single arg', () => {
     assert.throws(
       () => inferRequest.setInputTensor(123),
-      {message: 'InferRequest.setInputTensor() invalid argument.'});
+      { message: 'InferRequest.setInputTensor() invalid argument.' });
   });
 
   it('Test setOutputTensor(tensor)', () => {
@@ -147,7 +148,7 @@ describe('InferRequest', () => {
   it('Test setOutputTensor() - pass two tensors', () => {
     assert.throws(
       () => inferRequest.setOutputTensor(resTensor, tensor),
-      {message: 'InferRequest.setOutputTensor() invalid argument.'});
+      { message: 'InferRequest.setOutputTensor() invalid argument.' });
   });
 
   it('Test setTensor(string, tensor)', () => {
@@ -160,19 +161,19 @@ describe('InferRequest', () => {
   it('Test setTensor(string, tensor) - pass one arg', () => {
     assert.throws(
       () => inferRequest.setTensor('fc_out'),
-      {message: 'InferRequest.setTensor() invalid argument.'});
+      { message: 'InferRequest.setTensor() invalid argument.' });
   });
 
   it('Test setTensor(string, tensor) - pass args in wrong order', () => {
     assert.throws(
       () => inferRequest.setTensor(resTensor, 'fc_out'),
-      {message: 'InferRequest.setTensor() invalid argument.'});
+      { message: 'InferRequest.setTensor() invalid argument.' });
   });
 
   it('Test setTensor(string, tensor) - pass number as first arg', () => {
     assert.throws(
       () => inferRequest.setTensor(123, 'fc_out'),
-      {message: 'InferRequest.setTensor() invalid argument.'});
+      { message: 'InferRequest.setTensor() invalid argument.' });
   });
 
   const irGetters = compiledModel.createInferRequest();

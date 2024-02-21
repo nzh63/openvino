@@ -1,11 +1,6 @@
 # Copyright (C) 2018-2023 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 #
-
-if(WIN32)
-    return()
-endif()
-
 if(CMAKE_VERSION VERSION_LESS 3.14)
     message(WARNING "JS API is not available with CMake version less than 3.14, skipping")
     return()
@@ -79,6 +74,13 @@ if(APPLE)
     target_link_options(${PROJECT_NAME} PRIVATE -Wl,-undefined,suppress,-flat_namespace)
 elseif(AARCH64 OR ARM)
     target_link_options(${PROJECT_NAME} PRIVATE -Wl,--unresolved-symbols=ignore-all)
+elseif(WIN32)
+    add_compile_definitions(BUILDING_NODE_EXTENSION)
+    file(DOWNLOAD
+         https://nodejs.org/dist/latest-v20.x/win-x64/node.lib
+         ${CMAKE_CURRENT_BINARY_DIR}/node.lib
+    )
+    target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/node.lib)
 endif()
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
